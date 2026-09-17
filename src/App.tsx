@@ -1,209 +1,269 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 
-type SpotId = 'garden' | 'kitchen' | 'living'
+type LevelId = 'garden' | 'kitchen' | 'living'
+type Screen = 'home' | 'levels' | 'play' | 'complete'
+type ItemKind = 'star' | 'cake' | 'toy' | 'memory'
 
-type Spot = {
-  id: SpotId
+type Platform = { x: number; y: number; w: number; h: number }
+type Item = { id: string; x: number; y: number; kind: ItemKind; label: string }
+type Hazard = { id: string; x: number; y: number; kind: 'shadow' | 'pillow' }
+type Npc = {
+  id: string
   name: string
-  emoji: string
-  clue: string
-  reward: string
-  position: string
+  role: string
+  x: number
+  y: number
+  image: string
+  message: string
+  color: string
 }
+type Level = {
+  id: LevelId
+  number: number
+  name: string
+  subtitle: string
+  story: string
+  width: number
+  accent: string
+  platforms: Platform[]
+  items: Item[]
+  hazards: Hazard[]
+  npcs: Npc[]
+  goal: { x: number; label: string }
+}
+type Player = { x: number; y: number; vx: number; vy: number; direction: 1 | -1; onGround: boolean; frame: number }
 
-const spots: Spot[] = [
-  {
-    id: 'garden',
-    name: 'Bahçe ipucu',
-    emoji: '🌿',
-    clue: 'Sarı çiçeğin yanında parlayan üç küçük yıldız var. Semra, en sevdiği oyunu hatırlıyor.',
-    reward: 'Neşe yaprağı',
-    position: 'hotspot-garden',
-  },
-  {
-    id: 'kitchen',
-    name: 'Mutfak kokusu',
-    emoji: '🍰',
-    clue: 'Fırından gelen tarçın kokusu, herkesin bir araya geldiği o güzel günü gösteriyor.',
-    reward: 'Tarçın yıldızı',
-    position: 'hotspot-kitchen',
-  },
-  {
-    id: 'living',
-    name: 'Salon sandığı',
-    emoji: '🧸',
-    clue: 'Sandığın kapağında beş renkli iz var. Her biri aileden birinin neşesini taşıyor.',
-    reward: 'Aile ışığı',
-    position: 'hotspot-living',
-  },
-]
+const WORLD_HEIGHT = 500
+const GROUND_Y = 420
+const PLAYER_W = 64
+const PLAYER_H = 104
+const START_X = 92
+const START_Y = GROUND_Y - PLAYER_H
 
 const family = [
-  { name: 'Ahmet', role: 'Baba', emoji: '🧔🏻‍♂️', color: 'coral', note: 'Macera kaptanı', portrait: 'family-memory', photoClass: 'photo-ahmet' },
-  { name: 'Sevil', role: 'Anne', emoji: '👩🏻‍🦱', color: 'rose', note: 'Sıcaklık ustası', portrait: 'family-portrait', photoClass: 'photo-sevil' },
-  { name: 'Semra', role: 'Küçük kız', emoji: '👧🏻', color: 'sun', note: 'Ana kahraman', portrait: 'family-portrait', photoClass: 'photo-semra' },
-  { name: 'Mesut', role: 'Abi', emoji: '🧑🏻‍🦱', color: 'mint', note: 'İpucu avcısı', portrait: 'family-portrait', photoClass: 'photo-mesut' },
-  { name: 'Zafer', role: 'Büyük abi', emoji: '🧑🏻‍🦰', color: 'blue', note: 'Neşe bekçisi', portrait: 'family-portrait', photoClass: 'photo-zafer' },
+  { name: 'Baba Ahmet', role: 'Bahçe bekçisi', image: '/images/ahmet-npc.png', color: '#e88b62' },
+  { name: 'Anne Sevil', role: 'Mutfak sihirbazı', image: '/images/sevil-npc.png', color: '#ef9f85' },
+  { name: 'Abi Mesut', role: 'Yol gösterici', image: '/images/mesut-npc.png', color: '#89aef0' },
+  { name: 'Büyük Abi Zafer', role: 'Neşe koruyucusu', image: '/images/zafer-npc.png', color: '#e8cb6e' },
 ]
 
-function App() {
-  const [started, setStarted] = useState(false)
-  const [activeSpot, setActiveSpot] = useState<SpotId>('garden')
-  const [completed, setCompleted] = useState<SpotId[]>([])
-  const [showPhoto, setShowPhoto] = useState(false)
-  const [showHowTo, setShowHowTo] = useState(false)
+const ground = (width: number): Platform => ({ x: 0, y: GROUND_Y, w: width, h: 80 })
 
-  const active = spots.find((spot) => spot.id === activeSpot) ?? spots[0]
-  const isFinished = completed.length === spots.length
-  const nextSpot = useMemo(() => spots.find((spot) => !completed.includes(spot.id)), [completed])
+const levels: Level[] = [
+  {
+    id: 'garden', number: 1, name: 'Bahçe Başlangıcı', subtitle: 'Neşe tohumlarını topla',
+    story: 'Baba Ahmet bahçe kapısında bekliyor. Semra, aile ışığını yakmak için parlayan neşe tohumlarını bulmalı.', width: 2220, accent: '#f0b85b',
+    platforms: [ground(2220), { x: 280, y: 348, w: 160, h: 24 }, { x: 560, y: 286, w: 170, h: 24 }, { x: 855, y: 350, w: 172, h: 24 }, { x: 1160, y: 272, w: 175, h: 24 }, { x: 1450, y: 342, w: 185, h: 24 }, { x: 1730, y: 250, w: 190, h: 24 }],
+    items: [
+      { id: 'garden-1', x: 205, y: 378, kind: 'star', label: 'Güneş tohumu' }, { id: 'garden-2', x: 360, y: 305, kind: 'star', label: 'Papatya ışığı' },
+      { id: 'garden-3', x: 645, y: 242, kind: 'star', label: 'Salıncak yıldızı' }, { id: 'garden-4', x: 942, y: 307, kind: 'star', label: 'Kırmızı elma' },
+      { id: 'garden-5', x: 1250, y: 228, kind: 'star', label: 'Neşe tohumu' }, { id: 'garden-6', x: 1815, y: 206, kind: 'memory', label: 'Aile anısı' },
+    ],
+    hazards: [{ id: 'garden-h1', x: 770, y: 385, kind: 'shadow' }, { id: 'garden-h2', x: 1395, y: 385, kind: 'shadow' }, { id: 'garden-h3', x: 1665, y: 385, kind: 'shadow' }],
+    npcs: [{ ...family[0], id: 'ahmet', x: 505, y: GROUND_Y - 145, message: 'Aferin küçük kahraman! Yıldızların peşinden git; bahçe kapısındaki ışığı sen yakacaksın.' }],
+    goal: { x: 2080, label: 'Bahçe kapısı' },
+  },
+  {
+    id: 'kitchen', number: 2, name: 'Mutfak Zıplaması', subtitle: 'Tarçın yıldızlarını yakala',
+    story: 'Anne Sevil mutfakta sıcacık bir sürpriz hazırlıyor. Tezgâhlara zıplayıp tarçın yıldızlarını topla.', width: 2260, accent: '#ee9071',
+    platforms: [ground(2260), { x: 220, y: 330, w: 170, h: 24 }, { x: 475, y: 245, w: 180, h: 24 }, { x: 760, y: 335, w: 180, h: 24 }, { x: 1040, y: 260, w: 180, h: 24 }, { x: 1310, y: 330, w: 190, h: 24 }, { x: 1595, y: 240, w: 180, h: 24 }, { x: 1900, y: 320, w: 185, h: 24 }],
+    items: [
+      { id: 'kitchen-1', x: 300, y: 287, kind: 'cake', label: 'Kek kırıntısı' }, { id: 'kitchen-2', x: 555, y: 202, kind: 'cake', label: 'Tarçın yıldızı' },
+      { id: 'kitchen-3', x: 845, y: 292, kind: 'cake', label: 'Kurabiye ışığı' }, { id: 'kitchen-4', x: 1130, y: 217, kind: 'cake', label: 'Bal damlası' },
+      { id: 'kitchen-5', x: 1410, y: 287, kind: 'cake', label: 'Sürpriz yıldız' }, { id: 'kitchen-6', x: 1685, y: 197, kind: 'memory', label: 'Mutfak anısı' }, { id: 'kitchen-7', x: 1995, y: 277, kind: 'cake', label: 'Son lokma' },
+    ],
+    hazards: [{ id: 'kitchen-h1', x: 410, y: 385, kind: 'pillow' }, { id: 'kitchen-h2', x: 990, y: 385, kind: 'pillow' }, { id: 'kitchen-h3', x: 1810, y: 385, kind: 'pillow' }],
+    npcs: [{ ...family[1], id: 'sevil', x: 650, y: GROUND_Y - 155, message: 'Semra, mutfak ışıkları senin zıplama ritmini bekliyor! Hepsini toplarsan aile sofrası kurulacak.' }],
+    goal: { x: 2140, label: 'Sofra kapısı' },
+  },
+  {
+    id: 'living', number: 3, name: 'Salonun Sırları', subtitle: 'Aile ışığını tamamla',
+    story: 'Mesut ve Zafer salonda son iki ışığı saklıyor. Oyuncakların arasından ilerle, final kapısını birlikte açın.', width: 2320, accent: '#8ca8eb',
+    platforms: [ground(2320), { x: 260, y: 355, w: 175, h: 24 }, { x: 520, y: 285, w: 175, h: 24 }, { x: 810, y: 350, w: 180, h: 24 }, { x: 1080, y: 260, w: 195, h: 24 }, { x: 1390, y: 330, w: 180, h: 24 }, { x: 1665, y: 250, w: 185, h: 24 }, { x: 1940, y: 340, w: 190, h: 24 }],
+    items: [
+      { id: 'living-1', x: 335, y: 312, kind: 'toy', label: 'Oyuncak araba' }, { id: 'living-2', x: 605, y: 242, kind: 'toy', label: 'Mavi top' },
+      { id: 'living-3', x: 895, y: 307, kind: 'toy', label: 'Kırmızı blok' }, { id: 'living-4', x: 1178, y: 217, kind: 'toy', label: 'Kayıp düğme' },
+      { id: 'living-5', x: 1475, y: 287, kind: 'toy', label: 'Kurdele' }, { id: 'living-6', x: 1758, y: 207, kind: 'memory', label: 'Büyük anı' }, { id: 'living-7', x: 2025, y: 297, kind: 'toy', label: 'Aile anahtarı' },
+    ],
+    hazards: [{ id: 'living-h1', x: 720, y: 385, kind: 'shadow' }, { id: 'living-h2', x: 1300, y: 385, kind: 'pillow' }, { id: 'living-h3', x: 1880, y: 385, kind: 'shadow' }],
+    npcs: [{ ...family[2], id: 'mesut', x: 700, y: GROUND_Y - 148, message: 'Şuradaki mavi topu gördün mü? Sen zıpladıkça salonun gizli yolu ortaya çıkıyor.' }, { ...family[3], id: 'zafer', x: 1510, y: GROUND_Y - 155, message: 'Son ışıklar ileride! Büyük finali ancak senin cesaretin tamamlayabilir, Semra.' }],
+    goal: { x: 2220, label: 'Aile ışığı' },
+  },
+]
+
+const keyIsDown = (keys: Set<string>, names: string[]) => names.some((name) => keys.has(name))
+
+function App() {
+  const [screen, setScreen] = useState<Screen>('home')
+  const [levelIndex, setLevelIndex] = useState(0)
+  const [player, setPlayer] = useState<Player>({ x: START_X, y: START_Y, vx: 0, vy: 0, direction: 1, onGround: true, frame: 0 })
+  const [collected, setCollected] = useState<string[]>([])
+  const [lives, setLives] = useState(3)
+  const [score, setScore] = useState(0)
+  const [notice, setNotice] = useState('Hazır mısın, Semra?')
+  const [activeNpc, setActiveNpc] = useState<Npc | null>(null)
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [cameraX, setCameraX] = useState(0)
+  const keys = useRef<Set<string>>(new Set())
+  const collectedRef = useRef<string[]>([])
+  const playerRef = useRef(player)
+  const livesRef = useRef(lives)
+  const levelDoneRef = useRef(false)
+  const hazardCooldown = useRef(0)
+  const interactionLock = useRef(false)
+
+  const level = levels[levelIndex]
+  const progress = useMemo(() => Math.round((collected.length / level.items.length) * 100), [collected.length, level.items.length])
+  const nearestNpc = useMemo(() => level.npcs.find((npc) => Math.abs(npc.x - player.x) < 112) ?? null, [level.npcs, player.x])
+
+  useEffect(() => { playerRef.current = player }, [player])
+  useEffect(() => { livesRef.current = lives }, [lives])
+
+  const resetPlayer = useCallback(() => {
+    const next = { x: START_X, y: START_Y, vx: 0, vy: 0, direction: 1 as const, onGround: true, frame: 0 }
+    playerRef.current = next
+    setPlayer(next)
+    setCameraX(0)
+  }, [])
+
+  const resetLevel = useCallback((index = levelIndex) => {
+    setLevelIndex(index)
+    setCollected([])
+    collectedRef.current = []
+    setActiveNpc(null)
+    setNotice(levels[index].story)
+    setMemoryOpen(false)
+    levelDoneRef.current = false
+    hazardCooldown.current = 0
+    interactionLock.current = false
+    resetPlayer()
+    setScreen('play')
+  }, [levelIndex, resetPlayer])
 
   const startGame = () => {
-    setStarted(true)
-    document.getElementById('game')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setScore(0)
+    setLives(3)
+    livesRef.current = 3
+    resetLevel(0)
   }
 
-  const chooseSpot = (spot: Spot) => {
-    setStarted(true)
-    setActiveSpot(spot.id)
-  }
-
-  const collectClue = () => {
-    if (!completed.includes(active.id)) {
-      setCompleted((current) => [...current, active.id])
+  const advanceLevel = useCallback(() => {
+    if (levelDoneRef.current) return
+    levelDoneRef.current = true
+    if (levelIndex === levels.length - 1) {
+      setNotice('Aile ışığı tamamlandı! Hep birlikte başardınız!')
+      setScreen('complete')
+      return
     }
-    const next = spots.find((spot) => spot.id !== active.id && !completed.includes(spot.id))
-    if (next) setActiveSpot(next.id)
-  }
+    setNotice(`${levels[levelIndex].name} tamamlandı! Sıradaki macera açılıyor...`)
+    window.setTimeout(() => resetLevel(levelIndex + 1), 900)
+  }, [levelIndex, resetLevel])
 
-  return (
-    <main className="app-shell">
-      <nav className="topbar page-width" aria-label="Ana menü">
-        <a className="brand" href="#top" aria-label="Semra ve Aile Işığı ana sayfa">
-          <span className="brand-mark">S</span>
-          <span>
-            <strong>SEMRA'NIN</strong>
-            <small>AİLE GÜNLÜĞÜ</small>
-          </span>
-        </a>
-        <div className="topbar-actions">
-          <span className="family-chip"><span className="live-dot" /> 5 karakter · 1 macera</span>
-          <button className="icon-button" onClick={() => setShowHowTo(true)} aria-label="Nasıl oynanır?">?</button>
-        </div>
-      </nav>
+  const loseLife = useCallback(() => {
+    if (hazardCooldown.current > 0 || levelDoneRef.current) return
+    hazardCooldown.current = 1.2
+    const nextLives = livesRef.current - 1
+    setLives(nextLives)
+    livesRef.current = nextLives
+    if (nextLives <= 0) {
+      setNotice('Canların bitti. Bir kez daha dene, Semra!')
+      window.setTimeout(() => { setLives(3); livesRef.current = 3; resetPlayer() }, 700)
+    } else {
+      setNotice('Dikkat! Bir kalp gitti; macera devam ediyor.')
+      resetPlayer()
+    }
+  }, [resetPlayer])
 
-      <section className="hero page-width" id="top">
-        <div className="hero-copy">
-          <div className="eyebrow"><span /> AİLE HİKÂYESİ · BÖLÜM 01</div>
-          <h1>Semra ve<br /><em>Aile Işığı</em></h1>
-          <p className="hero-lede">Bazen en büyük macera, aynı evin içindeki küçük neşeleri bulmaktır. Semra’nın peşine takıl, aile ışığını birlikte yakalım.</p>
-          <div className="hero-actions">
-            <button className="primary-button" onClick={startGame}>Oyuna başla <span>↗</span></button>
-            <button className="text-button" onClick={() => setShowHowTo(true)}>Nasıl oynanır? <span>→</span></button>
-          </div>
-          <div className="hero-meta">
-            <span><b>03</b> keşif noktası</span>
-            <span><b>05</b> aile karakteri</span>
-            <span><b>∞</b> kahkaha</span>
-          </div>
-        </div>
+  const interact = useCallback(() => {
+    if (nearestNpc) {
+      setActiveNpc(nearestNpc)
+      setNotice(`${nearestNpc.name}: ${nearestNpc.message}`)
+    } else if (progress === 100) setNotice('Kapıya ulaştın! Neşeyi tamamlamak için biraz daha ilerle.')
+  }, [nearestNpc, progress])
 
-        <div className="hero-illustration" aria-label="Semra'nın evin önündeki çizim illüstrasyonu">
-          <div className="sun-orb" />
-          <div className="cloud cloud-one" />
-          <div className="cloud cloud-two" />
-          <div className="hero-spark spark-a">✦</div>
-          <div className="hero-spark spark-b">✧</div>
-          <div className="hill hill-back" />
-          <div className="hill hill-front" />
-          <div className="house">
-            <div className="roof" />
-            <div className="house-body"><div className="window window-left" /><div className="door" /><div className="window window-right" /></div>
-            <div className="chimney" />
-          </div>
-          <div className="hero-character">
-            <div className="character-shadow" />
-            <div className="hero-head">👧🏻</div>
-            <div className="hero-dress" />
-            <div className="hero-bag">✦</div>
-          </div>
-          <div className="illustration-caption"><span className="caption-dot" /> Semra hazır!</div>
-        </div>
-      </section>
+  useEffect(() => {
+    if (screen !== 'play') return undefined
+    const down = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      if (['arrowleft', 'arrowright', 'arrowup', ' ', 'a', 'd', 'w', 'e', 'enter'].includes(key)) event.preventDefault()
+      keys.current.add(key)
+      if (['arrowleft', 'a', 'arrowright', 'd'].includes(key)) {
+        const step = ['arrowleft', 'a'].includes(key) ? -24 : 24
+        const current = playerRef.current
+        const next = { ...current, x: Math.max(16, Math.min(level.width - PLAYER_W - 16, current.x + step)), vx: step / 8, direction: step < 0 ? -1 as const : 1 as const }
+        playerRef.current = next
+        setPlayer(next)
+      }
+      if (['arrowup', 'w', ' '].includes(key) && playerRef.current.onGround) {
+        const next = { ...playerRef.current, vy: -12.5, onGround: false, frame: 3 }
+        playerRef.current = next
+        setPlayer(next)
+      }
+      if ((key === 'e' || key === 'enter') && !interactionLock.current) { interactionLock.current = true; interact() }
+    }
+    const up = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      keys.current.delete(key)
+      if (key === 'e' || key === 'enter') interactionLock.current = false
+    }
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
+  }, [interact, level, screen])
 
-      <section className="story-strip page-width" aria-label="Hikâye özeti">
-        <div className="story-icon">✦</div>
-        <div><strong>Görev:</strong> Evde saklanan üç neşe parçasını bul ve aile ışığını yeniden yak.</div>
-        <div className="story-rule" />
-        <div className="story-note">Birlikte daha güzel</div>
-      </section>
+  useEffect(() => {
+    if (screen !== 'play') return undefined
+    let animationFrame = 0
+    let lastTime = performance.now()
+    const tick = (time: number) => {
+      const dt = Math.min((time - lastTime) / 1000, 0.034); lastTime = time
+      const current = playerRef.current
+      const left = keyIsDown(keys.current, ['arrowleft', 'a']); const right = keyIsDown(keys.current, ['arrowright', 'd']); const jump = keyIsDown(keys.current, ['arrowup', 'w', ' '])
+      const direction = left ? -1 : right ? 1 : current.direction
+      let vx = current.vx
+      if (left) vx -= 0.8; if (right) vx += 0.8; if (!left && !right) vx *= 0.78
+      vx = Math.max(-6.2, Math.min(6.2, vx))
+      let vy = current.vy + 0.52
+      if (jump && current.onGround) vy = -12.5
+      const x = Math.max(16, Math.min(level.width - PLAYER_W - 16, current.x + vx * 60 * dt))
+      let y = current.y + vy * 60 * dt; let onGround = false
+      const previousBottom = current.y + PLAYER_H; const nextBottom = y + PLAYER_H
+      for (const platform of level.platforms) {
+        const horizontal = x + PLAYER_W - 9 > platform.x && x + 9 < platform.x + platform.w
+        if (horizontal && vy >= 0 && previousBottom <= platform.y + 8 && nextBottom >= platform.y) { y = platform.y - PLAYER_H; vy = 0; onGround = true; break }
+      }
+      if (y > WORLD_HEIGHT + 30) { loseLife(); animationFrame = window.requestAnimationFrame(tick); return }
+      if (hazardCooldown.current > 0) hazardCooldown.current = Math.max(0, hazardCooldown.current - dt)
+      const nextPlayer: Player = { x, y, vx, vy, direction: direction as 1 | -1, onGround, frame: !onGround ? 3 : Math.abs(vx) > 0.5 ? (Math.floor(time / 120) % 2) + 1 : 0 }
+      playerRef.current = nextPlayer; setPlayer(nextPlayer); setCameraX(Math.max(0, Math.min(level.width - 1080, x - 360)))
+      for (const item of level.items) {
+        if (!collectedRef.current.includes(item.id) && Math.abs(item.x - (x + PLAYER_W / 2)) < 46 && Math.abs(item.y - (y + PLAYER_H / 2)) < 65) {
+          collectedRef.current = [...collectedRef.current, item.id]; setCollected(collectedRef.current); setScore((old) => old + (item.kind === 'memory' ? 250 : 100)); setNotice(`${item.label} bulundu! +${item.kind === 'memory' ? 250 : 100} puan`)
+        }
+      }
+      for (const hazard of level.hazards) if (Math.abs(hazard.x - (x + PLAYER_W / 2)) < 42 && Math.abs(hazard.y - (y + PLAYER_H)) < 44) loseLife()
+      if (x > level.goal.x - 55 && collectedRef.current.length === level.items.length) advanceLevel()
+      animationFrame = window.requestAnimationFrame(tick)
+    }
+    animationFrame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [advanceLevel, level, loseLife, screen])
 
-      <section className="game-section page-width" id="game">
-        <div className="section-heading">
-          <div><div className="eyebrow"><span /> OYUN ALANI</div><h2>Neşe haritası</h2></div>
-          <div className="progress-summary"><span>{completed.length}</span> / 3 ipucu bulundu <div className="progress-track"><i style={{ width: `${(completed.length / 3) * 100}%` }} /></div></div>
-        </div>
+  const pressControl = (name: string, event: ReactPointerEvent<HTMLButtonElement>) => { event.preventDefault(); keys.current.add(name); event.currentTarget.setPointerCapture(event.pointerId) }
+  const releaseControl = (name: string, event: ReactPointerEvent<HTMLButtonElement>) => { event.preventDefault(); keys.current.delete(name) }
+  const switchLevel = (index: number) => { setLevelIndex(index); setCollected([]); collectedRef.current = []; setNotice(levels[index].story); setScreen('levels') }
 
-        <div className="game-layout">
-          <div className="map-card">
-            <div className="map-topline"><span className="map-label">SEMRA'NIN EVİ</span><span className="map-season">sıcak bir yaz günü · 2026</span></div>
-            <div className="map-scene">
-              <div className="map-sun">☼</div>
-              <div className="map-cloud map-cloud-a" /><div className="map-cloud map-cloud-b" />
-              <div className="map-hill map-hill-a" /><div className="map-hill map-hill-b" />
-              <div className="map-house">
-                <div className="map-roof" /><div className="map-house-body"><div className="map-window left" /><div className="map-door" /><div className="map-window right" /></div>
-                <div className="map-flower flower-one">✿</div><div className="map-flower flower-two">✿</div>
-              </div>
-              <div className="map-tree"><span className="tree-top">♣</span><span className="tree-trunk" /></div>
-              <div className="map-path" />
-              <button className={`hotspot ${spots[0].position} ${activeSpot === 'garden' ? 'selected' : ''} ${completed.includes('garden') ? 'found' : ''}`} onClick={() => chooseSpot(spots[0])} aria-label="Bahçe ipucunu seç">
-                <span>{completed.includes('garden') ? '✓' : spots[0].emoji}</span><b>Bahçe</b><small>{completed.includes('garden') ? 'bulundu' : 'ipucu'}</small>
-              </button>
-              <button className={`hotspot ${spots[1].position} ${activeSpot === 'kitchen' ? 'selected' : ''} ${completed.includes('kitchen') ? 'found' : ''}`} onClick={() => chooseSpot(spots[1])} aria-label="Mutfak ipucunu seç">
-                <span>{completed.includes('kitchen') ? '✓' : spots[1].emoji}</span><b>Mutfak</b><small>{completed.includes('kitchen') ? 'bulundu' : 'ipucu'}</small>
-              </button>
-              <button className={`hotspot ${spots[2].position} ${activeSpot === 'living' ? 'selected' : ''} ${completed.includes('living') ? 'found' : ''}`} onClick={() => chooseSpot(spots[2])} aria-label="Salon ipucunu seç">
-                <span>{completed.includes('living') ? '✓' : spots[2].emoji}</span><b>Salon</b><small>{completed.includes('living') ? 'bulundu' : 'ipucu'}</small>
-              </button>
-              <div className="map-character semra-marker"><span className="map-photo photo-semra" /><small>Semra</small></div>
-              <div className="map-character family-marker"><span className="map-photo photo-ahmet" /><small>Ahmet</small></div>
-            </div>
-            <div className="map-footer"><span><i className="legend-dot active-dot" /> seçili nokta</span><span><i className="legend-dot found-dot" /> bulunan hatıra</span><span className="map-tip">Noktaları keşfet →</span></div>
-          </div>
+  if (screen === 'home') return <main className="app-shell home-shell"><div className="home-glow home-glow-one" /><div className="home-glow home-glow-two" /><section className="home-hero"><div className="eyebrow"><span className="sparkle">✦</span> Semra’nın macera günlüğü</div><h1>Semra’nın<br /><em>Neşe Macerası</em></h1><p className="hero-copy">Semra, aile ışığını yeniden yakmak için üç özel bölümde zıplayacak, toplayacak ve sevdikleriyle buluşacak.</p><div className="hero-actions"><button className="primary-button large" onClick={startGame}><span>▶</span> Oyuna başla</button><button className="ghost-button" onClick={() => setScreen('levels')}>Bölümleri gör <span>→</span></button></div><div className="hero-hint"><span>← →</span> koş <span>SPACE</span> zıpla <span>E</span> konuş</div></section><section className="home-art" aria-label="Semra ve ailesinin animasyonlu karakterleri"><div className="sun-disc" /><div className="hill hill-back" /><div className="hill hill-front" /><div className="home-card home-card-top"><span>3</span><small>özel bölüm</small></div><div className="home-card home-card-bottom"><span>♥</span><small>aile macerası</small></div><div className="home-character home-semilife"><img src="/images/semra-sprite.png" alt="Animasyonlu Semra" /></div><div className="family-lineup">{family.map((person) => <img key={person.name} src={person.image} alt={`Animasyonlu ${person.name}`} />)}</div><div className="art-caption">Fotoğraflardaki aile anılarından ilhamla <span>✦</span></div></section><footer className="privacy-note">Bu aile oyunu, özel fotoğrafları gereksiz kişisel bilgi eklemeden animasyonlaştırır.</footer></main>
 
-          <aside className="mission-panel">
-            <div className="mission-kicker"><span className="pulse-dot" /> {started ? 'MACERA DEVAM EDİYOR' : 'SEMRA SENİ BEKLİYOR'}</div>
-            <h3>{isFinished ? 'Aile ışığı yandı!' : active.name}</h3>
-            <p className="mission-copy">{isFinished ? 'Üç neşe parçası bir araya geldi. Bu ışık, birlikte geçirilen her güzel günü hatırlatıyor.' : active.clue}</p>
-            <div className="mission-reward"><span className="reward-icon">{isFinished ? '✨' : active.emoji}</span><div><small>BU NOKTADAN KAZAN</small><strong>{isFinished ? 'Kocaman bir aile gülümsemesi' : active.reward}</strong></div></div>
-            {!isFinished && <button className="collect-button" onClick={collectClue}>{completed.includes(active.id) ? 'Bulundu ✓' : 'Hatırayı topla'} <span>→</span></button>}
-            {isFinished && <button className="collect-button photo-button" onClick={() => setShowPhoto(true)}>Aile hatırasını aç <span>↗</span></button>}
-            <div className="mission-quote"><span>“</span><div>Her küçük ipucu, bizi birbirimize biraz daha yaklaştırır.</div><small>— Semra’nın defteri</small></div>
-          </aside>
-        </div>
-      </section>
+  if (screen === 'levels') return <main className="app-shell levels-shell"><header className="simple-header"><button className="brand-mark" onClick={() => setScreen('home')}><span>✦</span> SEMRA</button><span className="header-note">Neşe Macerası</span></header><section className="levels-intro"><div className="eyebrow">MACERA HARİTASI</div><h1>Bir bölüm seç, <em>yola çık!</em></h1><p>Her bölümde ışıkları topla, aileden biriyle konuş ve kapıya ulaş.</p></section><section className="level-grid">{levels.map((item, index) => { const unlocked = index === 0 || index <= levelIndex; return <button key={item.id} className={`level-card theme-${item.id} ${!unlocked ? 'locked' : ''}`} onClick={() => unlocked && resetLevel(index)} disabled={!unlocked}><div className="level-number">0{item.number}</div><div className="level-illustration"><span className="level-sun" /><span className="level-cloud cloud-one" /><span className="level-cloud cloud-two" /><span className="level-silhouette">{item.id === 'garden' ? '🌳' : item.id === 'kitchen' ? '🍰' : '🛋️'}</span></div><div className="level-card-copy"><strong>{item.name}</strong><small>{item.subtitle}</small></div><span className="level-arrow">{unlocked ? '→' : '🔒'}</span></button> })}</section><section className="cast-strip"><div><span className="eyebrow">OYUN KADROSU</span><h2>Gerçek aile, animasyonlu macera.</h2></div><div className="cast-portraits">{family.map((person) => <div key={person.name} className="cast-item"><img src={person.image} alt={person.name} /><span>{person.name.replace('Büyük Abi ', 'B. ')}</span></div>)}</div></section><button className="back-link" onClick={() => setScreen('home')}>← Ana menü</button></main>
 
-      <section className="family-section page-width">
-        <div className="section-heading compact-heading"><div><div className="eyebrow"><span /> OYUN EKİBİ</div><h2>Bizim aile</h2></div><span className="section-side-note">Herkesin ayrı bir süper gücü var.</span></div>
-        <div className="family-grid">
-          {family.map((member) => <article className={`family-card ${member.color} ${member.name === 'Semra' ? 'hero-member' : ''}`} key={member.name}>
-            <div className="family-card-top"><span className={`family-avatar family-avatar-photo ${member.photoClass}`} role="img" aria-label={`${member.name} portresi`}><span className="portrait-fallback">{member.emoji}</span></span><span className="family-badge">{member.name === 'Semra' ? '★' : '♥'}</span></div>
-            <strong>{member.name}</strong><span>{member.role}</span><small>{member.note}</small>
-          </article>)}
-        </div>
-      </section>
+  if (screen === 'complete') return <main className="app-shell complete-shell"><div className="confetti confetti-one" /><div className="confetti confetti-two" /><div className="confetti confetti-three" /><div className="complete-badge">✦</div><div className="eyebrow">BÜYÜK FİNAL</div><h1>Aile ışığı <em>yandı!</em></h1><p>Semra bütün bölümleri tamamladı. Ahmet, Sevil, Mesut ve Zafer onunla gurur duyuyor.</p><div className="final-family">{family.map((person) => <img key={person.name} src={person.image} alt={person.name} />)}</div><div className="final-score"><span>TOPLAM PUAN</span><strong>{score.toLocaleString('tr-TR')}</strong></div><div className="hero-actions"><button className="primary-button" onClick={() => setMemoryOpen(true)}>📷 Gerçek aile anısını gör</button><button className="ghost-button" onClick={() => setScreen('home')}>Ana menüye dön <span>→</span></button></div>{memoryOpen && <MemoryModal onClose={() => setMemoryOpen(false)} />}</main>
 
-      <section className="memory-section page-width">
-        <div className="memory-copy"><div className="eyebrow"><span /> AİLE HATIRASI</div><h2>Gerçek bir günden,<br /><em>oyunun kalbine.</em></h2><p>Bu maceranın en güzel parçası, birlikte geçirilen gerçek anlardan geliyor. Fotoğraf; yalnızca bu oyun içindeki hatıra kartında, isim ve konum bilgisi olmadan kullanılıyor.</p><button className="outline-button" onClick={() => setShowPhoto(true)}>Hatırayı gör <span>↗</span></button></div>
-        <button className="memory-photo" onClick={() => setShowPhoto(true)} aria-label="Aile hatırası fotoğrafını aç"><img src="/images/family-memory.jpg" alt="Ailenin birlikte kutlama yaptığı sıcak bir an" /><span className="photo-overlay"><i>✦</i> aile albümünden</span><span className="photo-corner">↗</span></button>
-      </section>
+  return <main className="app-shell game-shell"><header className="game-header"><button className="brand-mark" onClick={() => setScreen('levels')}><span>✦</span> SEMRA</button><div className="level-title"><small>BÖLÜM {level.number}</small><strong>{level.name}</strong></div><div className="game-stats"><div><small>NEŞE</small><strong>{score.toLocaleString('tr-TR')}</strong></div><div><small>CAN</small><strong className="hearts">{'♥'.repeat(lives)}<i>{'♥'.repeat(3 - lives)}</i></strong></div></div></header><section className={`game-viewport theme-${level.id}`} aria-label={`${level.name} oynanış alanı`}><div className="world" style={{ width: `${level.width}px`, transform: `translateX(${-cameraX}px)` }}><div className="parallax-sky" /><div className="parallax-sun" /><div className="parallax-cloud cloud-a" /><div className="parallax-cloud cloud-b" /><div className="parallax-hill hill-a" /><div className="parallax-hill hill-b" />{level.id === 'garden' && <><div className="world-decor tree-decor tree-one">🌳</div><div className="world-decor tree-decor tree-two">🌲</div></>}{level.id === 'kitchen' && <div className="world-decor kitchen-decor">🍳</div>}{level.id === 'living' && <div className="world-decor living-decor">🖼️</div>}<div className="world-sign" style={{ left: 58 }}><span>✦</span> SEMRA’NIN DÜNYASI</div>{level.platforms.map((platform, index) => <div key={`${platform.x}-${index}`} className={`platform ${index === 0 ? 'ground' : ''}`} style={{ left: platform.x, top: platform.y, width: platform.w, height: platform.h }} />)}{level.items.map((item) => !collected.includes(item.id) && <div key={item.id} className={`collectible collectible-${item.kind}`} style={{ left: item.x, top: item.y }} title={item.label}><span>{item.kind === 'cake' ? '✦' : item.kind === 'toy' ? '◆' : item.kind === 'memory' ? '▣' : '★'}</span></div>)}{level.hazards.map((hazard) => <div key={hazard.id} className={`hazard hazard-${hazard.kind}`} style={{ left: hazard.x, top: hazard.y }}><span>{hazard.kind === 'pillow' ? '☁' : '●'}</span></div>)}{level.npcs.map((npc) => <div key={npc.id} className={`npc npc-${npc.id}`} style={{ left: npc.x, top: npc.y, '--npc-accent': npc.color } as CSSProperties}><img src={npc.image} alt={`Animasyonlu ${npc.name}`} /><div className="npc-tag"><strong>{npc.name}</strong><small>{npc.role}</small></div>{nearestNpc?.id === npc.id && <div className="talk-indicator">E</div>}</div>)}<div className="goal-gate" style={{ left: level.goal.x }}><div className="gate-glow" /><span>✦</span><small>{level.goal.label}</small></div><div className={`player ${player.onGround && Math.abs(player.vx) > 0.5 ? 'running' : ''}`} style={{ left: player.x, top: player.y, transform: `scaleX(${player.direction})` }}><div className="player-sprite" style={{ backgroundPosition: `${player.frame * 33.3333}% 0` }} /><div className="player-shadow" /></div></div><div className="game-overlay-top"><div className="mission-copy"><span className="mission-icon">✦</span><div><strong>{level.subtitle}</strong><small>{notice}</small></div></div><div className="progress-pill"><span>{collected.length}/{level.items.length}</span><div><i style={{ width: `${progress}%` }} /></div></div></div>{nearestNpc && <button className="talk-prompt" onClick={interact}>E <span>{nearestNpc.name} ile konuş</span></button>}</section><div className="game-controls"><div className="control-guide"><span><b>← →</b> veya A D koş</span><span><b>SPACE</b> zıpla</span><span><b>E</b> konuş</span></div><div className="touch-controls"><button aria-label="Sola git" onPointerDown={(event) => pressControl('arrowleft', event)} onPointerUp={(event) => releaseControl('arrowleft', event)} onPointerCancel={(event) => releaseControl('arrowleft', event)}>←</button><button aria-label="Sağa git" onPointerDown={(event) => pressControl('arrowright', event)} onPointerUp={(event) => releaseControl('arrowright', event)} onPointerCancel={(event) => releaseControl('arrowright', event)}>→</button><button className="jump-control" aria-label="Zıpla" onPointerDown={(event) => pressControl(' ', event)} onPointerUp={(event) => releaseControl(' ', event)} onPointerCancel={(event) => releaseControl(' ', event)}>↑</button>{nearestNpc && <button className="talk-control" aria-label="Konuş" onClick={interact}>E</button>}</div></div>{activeNpc && <div className="dialog-backdrop" onClick={() => setActiveNpc(null)}><div className="dialog-card" onClick={(event) => event.stopPropagation()}><button className="dialog-close" onClick={() => setActiveNpc(null)}>×</button><img src={activeNpc.image} alt={activeNpc.name} /><div><span className="eyebrow">AİLEDEN MESAJ</span><h2>{activeNpc.name}</h2><p>“{activeNpc.message}”</p><button className="primary-button" onClick={() => setActiveNpc(null)}>Devam et</button></div></div></div>}</main>
+}
 
-      <footer className="footer page-width"><div className="footer-brand"><span className="brand-mark">S</span><span><strong>SEMRA'NIN</strong><small>AİLE GÜNLÜĞÜ</small></span></div><span>Birlikte yazılan küçük bir macera.</span><span className="footer-year">Bölüm 01 · Aile Işığı</span></footer>
-
-      {showPhoto && <div className="modal-backdrop" role="presentation" onClick={() => setShowPhoto(false)}><div className="photo-modal" role="dialog" aria-modal="true" aria-label="Aile hatırası" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setShowPhoto(false)} aria-label="Kapat">×</button><img src="/images/family-memory.jpg" alt="Ailenin birlikte kutlama yaptığı sıcak bir an" /><div className="modal-copy"><div className="eyebrow"><span /> AİLE HATIRASI</div><h3>Birlikte olduğumuz anlar, en güzel hazinemiz.</h3><p>Bu fotoğraf, Semra’nın aile ışığına ilham veren gerçek bir hatıra.</p><small>Özel kullanım · Bu oyun için</small></div></div></div>}
-      {showHowTo && <div className="modal-backdrop" role="presentation" onClick={() => setShowHowTo(false)}><div className="howto-modal" role="dialog" aria-modal="true" aria-label="Nasıl oynanır" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setShowHowTo(false)} aria-label="Kapat">×</button><div className="eyebrow"><span /> KÜÇÜK BİR REHBER</div><h3>Semra’nın peşinden git.</h3><p>Haritadaki üç noktayı keşfet, her birinden bir neşe parçası topla. Üçü birleşince aile ışığı yanacak ve gerçek aile hatırası açılacak.</p><div className="howto-steps"><div><b>01</b><span>Bir nokta seç</span></div><div><b>02</b><span>İpucunu oku</span></div><div><b>03</b><span>Hatırayı topla</span></div></div><button className="primary-button" onClick={() => { setShowHowTo(false); startGame() }}>Haritaya git <span>↗</span></button></div></div>}
-    </main>
-  )
+function MemoryModal({ onClose }: { onClose: () => void }) {
+  return <div className="dialog-backdrop" onClick={onClose}><div className="memory-card" onClick={(event) => event.stopPropagation()}><button className="dialog-close" onClick={onClose}>×</button><img src="/images/family-memory.jpg" alt="Aile anısı" /><div><span className="eyebrow">GERÇEK AİLE ANISI</span><h2>Birlikte daha güzel.</h2><p>Bu fotoğraf, oyunun sıcaklığına ilham veren aile anılarından biri. Oyundaki karakterler fotoğraflardaki kişilerin animasyonlaştırılmış yorumudur.</p><button className="primary-button" onClick={onClose}>Anıya sarıl ✦</button></div></div></div>
 }
 
 export default App
