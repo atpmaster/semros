@@ -137,3 +137,21 @@ h1 em { color: var(--coral); font-style: normal; }
 @media (max-width: 420px) {
   .home-family-lineup { bottom: 63px; }.home-character-art { height: 170px; }.home-character strong { font-size: 11px; }.home-character span { display: none; }.shopping-list { gap: 7px; }.shopping-item { font-size: 11px; }.item-emoji { font-size: 17px; }.mission-counter { display: none; }
 }
+
+/* The game can be played by listening and tapping the pictures; reading is optional. */
+.mission-description { margin-bottom: 14px; }
+.voice-guide { display: flex; align-items: center; gap: 9px; margin: 0 0 18px; padding: 8px 10px; border-radius: 13px; background: #fff5d8; color: #8c712d; font-size: 11px; font-weight: 800; }
+.listen-button { flex: 0 0 auto; padding: 8px 11px; border: 0; border-radius: 10px; color: white; background: #e8a940; cursor: pointer; font-size: 12px; font-weight: 900; box-shadow: 0 3px 0 #c8872d; }
+.listen-button:hover { transform: translateY(-2px); }
+.task-label { font-size: 15px; }
+.choice-icon { flex: 0 0 auto; color: #416c75; font-size: 18px; white-space: nowrap; }
+.visual-order { display: flex; justify-content: center; align-items: center; gap: 6px; min-height: 38px; margin: -2px 0 9px; padding: 6px 10px; border-radius: 14px; background: #f3faf5; border: 2px dashed #d5e8df; }
+.visual-order span { font-size: 22px; }
+.visual-order span + span::before { content: '›'; margin-right: 6px; color: #a7c4b7; font-size: 20px; vertical-align: 2px; }
+.color-order .order-dot { width: 25px; height: 25px; display: block; border: 5px solid currentColor; border-radius: 50%; }
+.color-order .order-dot + .order-dot::before { content: '›'; display: inline-block; margin: -7px 0 0 -18px; color: #a7c4b7; font-size: 20px; vertical-align: 4px; }
+.color-order .sequence-blue { color: #6989df; }.color-order .sequence-gold { color: #efb64c; }.color-order .sequence-red { color: #ed7a82; }.color-order .sequence-green { color: #55bda5; }
+
+@media (max-width: 720px) {
+  .voice-guide { font-size: 10px; }.listen-button { padding: 8px 9px; }.visual-order span { font-size: 19px; }.color-order .order-dot { width: 22px; height: 22px; border-width: 4px; }
+}

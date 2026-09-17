@@ -50,6 +50,8 @@ const addressOptions = [
   'Düz devam edip bulut durağında bekleyelim.',
 ]
 
+const addressIcons = ['⭐ ➜ 🌳', '🛒 ➜ 🌉', '☁️ ➜ 🚌']
+
 const shoppingItems = [
   { id: 'apple', label: 'Elma', emoji: '🍎' },
   { id: 'milk', label: 'Süt', emoji: '🥛' },
@@ -98,8 +100,35 @@ function App() {
 
   const play = (name: Parameters<GameAudio['play']>[0]) => audioRef.current?.play(name)
 
+  const speak = (text: string) => {
+    if (muted || !('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const voice = new SpeechSynthesisUtterance(text)
+    voice.lang = 'tr-TR'
+    voice.rate = 0.86
+    voice.pitch = 1.12
+    voice.volume = 1
+    window.speechSynthesis.speak(voice)
+  }
+
+  const readMission = () => {
+    if (!activeMission) return
+    const voiceInstructions: Record<MissionId, string> = {
+      address: 'Anne Sevil’le yolu bul. Bir numaralı yıldızlı yolu seç.',
+      shopping: 'Baba Ahmet’le alışveriş yap. Elma, süt, ekmek ve çiçeğe dokun.',
+      rhythm: 'Mesut Abi’nin yıldızlarına sırayla dokun. Bir, iki, üç, dört, beş.',
+      targets: 'Zafer Abi’yle hedef vur. Üç renkli hedefe de dokun.',
+      memory: 'Aynı iki hatıra kartını bul. Üç çift yap.',
+      market: 'Ürünleri sırayla seç: domates, peynir, muz, çiçek, kurabiye.',
+      relay: 'Koş düğmesine sekiz kere dokun. Bayrağı finişe götür.',
+      sequence: 'Renkleri sırayla bul: mavi, sarı, kırmızı, yeşil.',
+    }
+    speak(voiceInstructions[activeMission])
+  }
+
   const startAdventure = () => {
     audioRef.current?.start()
+    speak('Merhaba Semra! Aile macerası başlıyor. Haritada bir aile üyesine dokun.')
     setScreen('map')
   }
 
@@ -107,6 +136,7 @@ function App() {
     const nextMuted = !muted
     setMuted(nextMuted)
     audioRef.current?.setMuted(nextMuted)
+    if (nextMuted && 'speechSynthesis' in window) window.speechSynthesis.cancel()
   }
 
   const openMission = (id: MissionId) => {
@@ -123,6 +153,7 @@ function App() {
     setFeedback('')
     setScreen('mission')
     play('talk')
+    speak(id === 'address' ? 'Anne Sevil’le yolu bulalım.' : id === 'shopping' ? 'Baba Ahmet’le alışveriş yapalım.' : id === 'rhythm' ? 'Mesut Abi’yle ritim yapalım.' : id === 'targets' ? 'Zafer Abi’yle hedef oynayalım.' : id === 'memory' ? 'Anne Sevil’le hatıra eşlerini bulalım.' : id === 'market' ? 'Baba Ahmet’le hızlı pazara gidelim.' : id === 'relay' ? 'Mesut Abi’yle bayrak yarışına başlayalım.' : 'Zafer Abi’yle renk hafızasını çözelim.')
   }
 
   const chooseAddress = (index: number) => {
@@ -130,9 +161,11 @@ function App() {
     if (index === 0) {
       play('collect')
       setFeedback('Harika! Anne Sevil’in tarifini doğru buldun.')
+      speak('Harika! Birinci yol doğru. Anne Sevil sana aferin diyor.')
     } else {
       play('hit')
       setFeedback('Birlikte tekrar bakalım. Yıldızlı sokaktan sonra parka dönüyoruz.')
+      speak('Tekrar dene. Bir numaralı yıldızlı yolu seç.')
     }
   }
 
@@ -142,6 +175,7 @@ function App() {
     setShoppingSelected(nextSelected)
     play('collect')
     setFeedback(nextSelected.length === shoppingItems.length ? 'Sepet tamam! Ahmet Baba ile alışveriş görevi bitti.' : 'Sepete eklendi. Listedeki diğer ürünleri de bul!')
+    speak(nextSelected.length === shoppingItems.length ? 'Sepet tamam! Ahmet Baba ile alışveriş bitti.' : 'Sepete koydun. Diğer ürünlere de dokun.')
   }
 
   const tapRhythm = (index: number) => {
@@ -149,12 +183,16 @@ function App() {
       play('hit')
       setRhythmStep(0)
       setFeedback('Ritim şaştı! İlk yıldızdan başlayıp sırayı takip et.')
+      speak('Ritim şaştı. İlk yıldızdan başlayalım.')
       return
     }
     const nextStep = rhythmStep + 1
     setRhythmStep(nextStep)
     play('collect')
-    if (nextStep === 5) setFeedback('Mükemmel ritim! Mesut Abi seninle gurur duyuyor.')
+    if (nextStep === 5) {
+      setFeedback('Mükemmel ritim! Mesut Abi seninle gurur duyuyor.')
+      speak('Mükemmel! Mesut Abi ile ritmi tamamladın.')
+    }
   }
 
   const tapTarget = (index: number) => {
@@ -163,6 +201,7 @@ function App() {
     setTargetHits(nextHits)
     play('collect')
     setFeedback(nextHits.length === 3 ? 'Üç hedef de tamam! Zafer Abi’nin süper yardımcısısın.' : 'İsabet! Kalan hedefleri de yakala.')
+    speak(nextHits.length === 3 ? 'Bravo! Üç hedefi de vurdun.' : 'İsabet! Bir hedef daha bul.')
   }
 
   const tapMemoryCard = (index: number) => {
@@ -177,9 +216,15 @@ function App() {
       setMemoryMatched(nextMatched)
       setMemoryFlipped([])
       play('collect')
-      if (nextMatched.length === memoryDeck.length) setFeedback('Harika eşleştirme! Aile albümünün gizli sayfası açıldı.')
+      if (nextMatched.length === memoryDeck.length) {
+        setFeedback('Harika eşleştirme! Aile albümünün gizli sayfası açıldı.')
+        speak('Harika! Üç hatıra çiftini de buldun.')
+      } else {
+        speak('Doğru çift! Bir çift daha bul.')
+      }
     } else {
       setFeedback('Bu ikili farklı. Kartları hatırlayıp yeniden dene!')
+      speak('Bu kartlar farklı. Başka iki karta dokun.')
       window.setTimeout(() => setMemoryFlipped([]), 650)
     }
   }
@@ -190,12 +235,18 @@ function App() {
       play('hit')
       setMarketStep(0)
       setFeedback('Sıra karıştı! Domatesten başlayarak listeyi takip et.')
+      speak('Sıra karıştı. Domatesle başlayalım.')
       return
     }
     const nextStep = marketStep + 1
     setMarketStep(nextStep)
     play('collect')
-    if (nextStep === marketItems.length) setFeedback('Hızlı ve doğru! Pazar sırasını sen kurdun.')
+    if (nextStep === marketItems.length) {
+      setFeedback('Hızlı ve doğru! Pazar sırasını sen kurdun.')
+      speak('Çok hızlıydın! Pazar sırasını tamamladın.')
+    } else {
+      speak('Doğru! Sıradaki ürünü bul.')
+    }
   }
 
   const tapRelay = () => {
@@ -206,6 +257,7 @@ function App() {
     if (nextProgress === 8) {
       play('level')
       setFeedback('Bayrak sende! Mesut Abi ile birlikte yarışı kazandınız.')
+      speak('Yaşasın! Bayrak finişe ulaştı.')
     }
   }
 
@@ -214,12 +266,18 @@ function App() {
       play('hit')
       setSequenceStep(0)
       setFeedback('Renk sırası şaştı. Mavi ile başlayıp ışıkları takip et!')
+      speak('Tekrar deneyelim. Mavi hedefe dokun.')
       return
     }
     const nextStep = sequenceStep + 1
     setSequenceStep(nextStep)
     play('collect')
-    if (nextStep === targetSequence.length) setFeedback('Renk hafızası tamam! Zafer Abi’nin gizli hedefini buldun.')
+    if (nextStep === targetSequence.length) {
+      setFeedback('Renk hafızası tamam! Zafer Abi’nin gizli hedefini buldun.')
+      speak('Harika hafıza! Renk sırasını tamamladın.')
+    } else {
+      speak('Doğru renk! Sıradaki ışığı bul.')
+    }
   }
 
   const finishMission = () => {
@@ -230,10 +288,12 @@ function App() {
     setFeedback('')
     setActiveMission(null)
     setScreen('map')
+    speak('Bölüm tamamlandı! Haritada yeni bir bölüme dokun.')
   }
 
   const finishAdventure = () => {
     play('victory')
+    speak('Bravo Semra! Bütün aile macerasını tamamladın!')
     setScreen('complete')
   }
 
@@ -255,27 +315,27 @@ function App() {
 
   const renderMissionTask = () => {
     if (activeMission === 'address') {
-      return <div className="task-block"><p className="task-label">Semra soruyor: “Anne, parka nasıl gideceğiz?”</p><div className="choice-list">{addressOptions.map((option, index) => <button className={`choice-button ${addressChoice === index ? (index === 0 ? 'correct' : 'wrong') : ''}`} key={option} onClick={() => chooseAddress(index)}><span className="choice-number">{index + 1}</span><span>{option}</span></button>)}</div></div>
+      return <div className="task-block"><p className="task-label">Semra soruyor: “Anne, parka nasıl gideceğiz?”</p><div className="choice-list">{addressOptions.map((option, index) => <button className={`choice-button ${addressChoice === index ? (index === 0 ? 'correct' : 'wrong') : ''}`} key={option} onClick={() => chooseAddress(index)}><span className="choice-number">{index + 1}</span><span className="choice-icon">{addressIcons[index]}</span><span>{option}</span></button>)}</div></div>
     }
     if (activeMission === 'shopping') {
-      return <div className="task-block"><p className="task-label">Ahmet Baba’nın alışveriş listesini tamamla:</p><div className="shopping-list">{shoppingItems.map((item) => { const selected = shoppingSelected.includes(item.id); return <button className={`shopping-item ${selected ? 'selected' : ''}`} key={item.id} onClick={() => chooseShoppingItem(item.id)} aria-pressed={selected}><span className="item-emoji">{item.emoji}</span><span>{item.label}</span><span className="item-check">{selected ? '✓' : '+'}</span></button> })}</div><div className="basket-meter"><span className="basket-fill" style={{ width: `${(shoppingSelected.length / shoppingItems.length) * 100}%` }} /></div><p className="meter-copy">Sepet: {shoppingSelected.length} / {shoppingItems.length}</p></div>
+      return <div className="task-block"><p className="task-label">Resimlere dokun, alışveriş sepetini doldur:</p><div className="shopping-list">{shoppingItems.map((item) => { const selected = shoppingSelected.includes(item.id); return <button className={`shopping-item ${selected ? 'selected' : ''}`} key={item.id} onClick={() => chooseShoppingItem(item.id)} aria-pressed={selected}><span className="item-emoji">{item.emoji}</span><span>{item.label}</span><span className="item-check">{selected ? '✓' : '+'}</span></button> })}</div><div className="basket-meter"><span className="basket-fill" style={{ width: `${(shoppingSelected.length / shoppingItems.length) * 100}%` }} /></div><p className="meter-copy">Sepet: {shoppingSelected.length} / {shoppingItems.length}</p></div>
     }
     if (activeMission === 'rhythm') {
-      return <div className="task-block"><p className="task-label">Mesut Abi’nin yıldız ritmini aynı sırayla tekrarla:</p><div className="rhythm-row">{Array.from({ length: 5 }, (_, index) => <button className={`rhythm-star ${index < rhythmStep ? 'lit' : ''}`} key={index} onClick={() => tapRhythm(index)} aria-label={`${index + 1}. ritim yıldızı`}>★</button>)}</div><p className="meter-copy">Ritim: {rhythmStep} / 5</p></div>
+      return <div className="task-block"><p className="task-label">Parlayan yıldızlara sırayla dokun:</p><div className="rhythm-row">{Array.from({ length: 5 }, (_, index) => <button className={`rhythm-star ${index < rhythmStep ? 'lit' : ''}`} key={index} onClick={() => tapRhythm(index)} aria-label={`${index + 1}. ritim yıldızı`}>★</button>)}</div><p className="meter-copy">Ritim: {rhythmStep} / 5</p></div>
     }
     if (activeMission === 'targets') {
-      return <div className="task-block"><p className="task-label">Zafer Abi’nin parkındaki üç hedefe dokun:</p><div className="target-board">{['red', 'blue', 'gold'].map((color, index) => <button className={`target target-${color} ${targetHits.includes(index) ? 'hit' : ''}`} key={color} onClick={() => tapTarget(index)} aria-label={`${color} hedef`}><span /></button>)}</div><p className="meter-copy">Hedef: {targetHits.length} / 3</p></div>
+      return <div className="task-block"><p className="task-label">Büyük hedeflere dokun:</p><div className="target-board">{['red', 'blue', 'gold'].map((color, index) => <button className={`target target-${color} ${targetHits.includes(index) ? 'hit' : ''}`} key={color} onClick={() => tapTarget(index)} aria-label={`${color} hedef`}><span /></button>)}</div><p className="meter-copy">Hedef: {targetHits.length} / 3</p></div>
     }
     if (activeMission === 'memory') {
-      return <div className="task-block"><p className="task-label">Aynı sembolleri bulup hatıra çiftlerini tamamla:</p><div className="memory-grid">{memoryDeck.map((card, index) => { const revealed = memoryFlipped.includes(index) || memoryMatched.includes(index); return <button className={`memory-tile ${revealed ? 'revealed' : ''} ${memoryMatched.includes(index) ? 'matched' : ''}`} key={`${card}-${index}`} onClick={() => tapMemoryCard(index)} aria-label={revealed ? `${card} hatıra kartı` : 'Kapalı hatıra kartı'}>{revealed ? card : '?'}</button> })}</div><p className="meter-copy">Eşleşen çift: {memoryMatched.length / 2} / 3</p></div>
+      return <div className="task-block"><p className="task-label">Aynı resimleri ikişer ikişer bul:</p><div className="memory-grid">{memoryDeck.map((card, index) => { const revealed = memoryFlipped.includes(index) || memoryMatched.includes(index); return <button className={`memory-tile ${revealed ? 'revealed' : ''} ${memoryMatched.includes(index) ? 'matched' : ''}`} key={`${card}-${index}`} onClick={() => tapMemoryCard(index)} aria-label={revealed ? `${card} hatıra kartı` : 'Kapalı hatıra kartı'}>{revealed ? card : '?'}</button> })}</div><p className="meter-copy">Eşleşen çift: {memoryMatched.length / 2} / 3</p></div>
     }
     if (activeMission === 'market') {
-      return <div className="task-block"><p className="task-label">Ürünleri şu sırayla seç: domates → peynir → muz → çiçek → kurabiye</p><div className="market-sequence">{marketItems.map((item, index) => <button className={`market-item ${index < marketStep ? 'done' : ''} ${index === marketStep ? 'next' : ''}`} key={item.label} onClick={() => tapMarketItem(index)}><span>{item.emoji}</span><b>{index < marketStep ? '✓' : index + 1}</b><small>{item.label}</small></button>)}</div><p className="meter-copy">Sipariş: {marketStep} / {marketItems.length}</p></div>
+      return <div className="task-block"><p className="task-label">Parlayan ürünü bulup sırayla seç:</p><div className="visual-order" aria-label="Ürün sırası">{marketItems.map((item) => <span key={item.label}>{item.emoji}</span>)}</div><div className="market-sequence">{marketItems.map((item, index) => <button className={`market-item ${index < marketStep ? 'done' : ''} ${index === marketStep ? 'next' : ''}`} key={item.label} onClick={() => tapMarketItem(index)}><span>{item.emoji}</span><b>{index < marketStep ? '✓' : index + 1}</b><small>{item.label}</small></button>)}</div><p className="meter-copy">Sipariş: {marketStep} / {marketItems.length}</p></div>
     }
     if (activeMission === 'relay') {
-      return <div className="task-block"><p className="task-label">Bayrağı finale götürmek için koş düğmesine 8 kez dokun:</p><div className="relay-track"><div className="relay-finish">🏁</div><div className="relay-runner" style={{ left: `${relayProgress * 10}%` }}>🏃‍♀️</div></div><button className="relay-button" onClick={tapRelay} disabled={relayProgress === 8}>{relayProgress === 8 ? 'Bayrak finişte! ✓' : 'Koş! +1 adım'}</button><p className="meter-copy">Pist: {relayProgress} / 8 adım</p></div>
+      return <div className="task-block"><p className="task-label">Bayrağı finişe götür:</p><div className="relay-track"><div className="relay-finish">🏁</div><div className="relay-runner" style={{ left: `${relayProgress * 10}%` }}>🏃‍♀️</div></div><button className="relay-button" onClick={tapRelay} disabled={relayProgress === 8}>{relayProgress === 8 ? 'Bayrak finişte! ✓' : '🏃 Koş!'}</button><p className="meter-copy">Pist: {relayProgress} / 8 adım</p></div>
     }
-    return <div className="task-block"><p className="task-label">Işıkları doğru sırada yak: mavi → sarı → kırmızı → yeşil</p><div className="sequence-board">{sequenceColors.map((color) => <button className={`sequence-target sequence-${color} ${sequenceStep > targetSequence.indexOf(color) && targetSequence.slice(0, sequenceStep).includes(color) ? 'lit' : ''}`} key={color} onClick={() => tapSequenceTarget(color)} aria-label={`${color} hedef`}><span /></button>)}</div><p className="meter-copy">Renk dizisi: {sequenceStep} / {targetSequence.length}</p></div>
+    return <div className="task-block"><p className="task-label">Önce ışıkları izle, sonra aynı sıraya dokun:</p><div className="visual-order color-order" aria-label="Renk sırası"><span className="order-dot sequence-blue" /><span className="order-dot sequence-gold" /><span className="order-dot sequence-red" /><span className="order-dot sequence-green" /></div><div className="sequence-board">{sequenceColors.map((color) => <button className={`sequence-target sequence-${color} ${sequenceStep > targetSequence.indexOf(color) && targetSequence.slice(0, sequenceStep).includes(color) ? 'lit' : ''}`} key={color} onClick={() => tapSequenceTarget(color)} aria-label={`${color} hedef`}><span /></button>)}</div><p className="meter-copy">Işıklar: {sequenceStep} / {targetSequence.length}</p></div>
   }
 
   if (screen === 'home') {
@@ -289,7 +349,7 @@ function App() {
 
   if (screen === 'mission' && activeMissionDef && activePerson && activeMission) {
     const missionIndex = missions.findIndex((mission) => mission.id === activeMission)
-    return <div className={`app-shell mission-screen theme-${activeMission}`}><header className="site-header game-header"><button className="mini-brand" onClick={() => setScreen('map')}><span className="brand-mark">S</span><span>Semra’nın Aile Günü</span></button><div className="game-header-actions"><span className="mission-counter">BÖLÜM {missionIndex + 1} / 8</span><button className="sound-button" onClick={toggleSound}>{muted ? '🔇 Sesi aç' : '🔊 Sesi kapat'}</button></div></header><main className="mission-main"><button className="back-link" onClick={() => setScreen('map')}>← Haritaya dön</button><div className="mission-layout"><section className="mission-stage" style={{ '--stage-accent': activePerson.accent } as CSSProperties}><div className="stage-glow" /><div className="scene-spark spark-one">✦</div><div className="scene-spark spark-two">✦</div><div className="scene-location"><span>{activeMissionDef.emoji}</span>{activeMissionDef.station}</div><div className="scene-person"><img src={activePerson.image} alt={activePerson.name} /></div><div className="scene-semra"><div className="runner-sprite" /><span>Semra</span></div><div className="speech-bubble"><strong>{activePerson.name}</strong><span>{activeMissionDef.speech}</span></div><div className="stage-floor" /></section><section className="mission-panel"><span className="eyebrow" style={{ color: activePerson.accent }}>SEVİYE {activeMissionDef.level}</span><h1>{missionTitles[activeMission]}</h1><p className="mission-description">{activeMissionDef.description}</p>{renderMissionTask()}{feedback && <div className={`feedback ${missionSolved ? 'success' : 'info'}`}><span>{missionSolved ? '✓' : '✦'}</span>{feedback}</div>}<div className="mission-actions"><button className="text-button" onClick={() => setScreen('map')}>Daha sonra</button><button className="primary-button" disabled={!missionSolved} onClick={finishMission}>{missionSolved ? 'Bölümü tamamla' : 'Önce bölümü bitir'} <span>→</span></button></div></section></div></main></div>
+    return <div className={`app-shell mission-screen theme-${activeMission}`}><header className="site-header game-header"><button className="mini-brand" onClick={() => setScreen('map')}><span className="brand-mark">S</span><span>Semra’nın Aile Günü</span></button><div className="game-header-actions"><span className="mission-counter">BÖLÜM {missionIndex + 1} / 8</span><button className="sound-button" onClick={toggleSound}>{muted ? '🔇 Sesi aç' : '🔊 Sesi kapat'}</button></div></header><main className="mission-main"><button className="back-link" onClick={() => setScreen('map')}>← Haritaya dön</button><div className="mission-layout"><section className="mission-stage" style={{ '--stage-accent': activePerson.accent } as CSSProperties}><div className="stage-glow" /><div className="scene-spark spark-one">✦</div><div className="scene-spark spark-two">✦</div><div className="scene-location"><span>{activeMissionDef.emoji}</span>{activeMissionDef.station}</div><div className="scene-person"><img src={activePerson.image} alt={activePerson.name} /></div><div className="scene-semra"><div className="runner-sprite" /><span>Semra</span></div><div className="speech-bubble"><strong>{activePerson.name}</strong><span>{activeMissionDef.speech}</span></div><div className="stage-floor" /></section><section className="mission-panel"><span className="eyebrow" style={{ color: activePerson.accent }}>SEVİYE {activeMissionDef.level}</span><h1>{missionTitles[activeMission]}</h1><p className="mission-description">{activeMissionDef.description}</p><div className="voice-guide"><button className="listen-button" onClick={readMission}>🔊 Dinle</button><span>Semra’ya ne yapacağını sesli anlatıyorum.</span></div>{renderMissionTask()}{feedback && <div className={`feedback ${missionSolved ? 'success' : 'info'}`}><span>{missionSolved ? '✓' : '✦'}</span>{feedback}</div>}<div className="mission-actions"><button className="text-button" onClick={() => setScreen('map')}>Daha sonra</button><button className="primary-button" disabled={!missionSolved} onClick={finishMission}>{missionSolved ? 'Bölümü tamamla' : 'Önce bölümü bitir'} <span>→</span></button></div></section></div></main></div>
   }
 
   return <div className="app-shell complete-screen"><header className="site-header game-header"><button className="mini-brand" onClick={() => setScreen('map')}><span className="brand-mark">S</span><span>Semra’nın Aile Günü</span></button><button className="sound-button" onClick={toggleSound}>{muted ? '🔇 Sesi aç' : '🔊 Sesi kapat'}</button></header><main className="complete-main"><span className="eyebrow gold">BÜYÜK AİLE FİNALİ</span><h1>Bravo Semra! Günün yıldızı sensin!</h1><p>Sekiz bölümü de ailenle birlikte tamamladın. Şimdi bu güzel günü bir aile hatırasıyla kutlayabilirsin.</p><div className="complete-family-lineup">{family.map((person) => <div className="complete-character" key={person.id}><img src={person.image} alt={person.name} /><strong>{person.name}</strong></div>)}<div className="complete-semra"><div className="runner-sprite" /><strong>Semra</strong></div></div><div className="complete-actions"><button className="primary-button large" onClick={() => setMemoryOpen(true)}>Aile hatırasını aç <span>♥</span></button><button className="outline-button" onClick={() => setScreen('map')}>Haritaya dön</button></div>{memoryOpen && <div className="memory-modal" role="dialog" aria-modal="true" aria-label="Aile hatırası" onClick={() => setMemoryOpen(false)}><div className="memory-card" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setMemoryOpen(false)}>×</button><span className="eyebrow coral">AİLE ALBÜMÜNDEN</span><h2>Birlikte her gün macera</h2><img src="/images/family-memory.jpg" alt="Aile hatırası" /><p>Bu hatıra yalnızca bu aile oyununun içinde, sevgiyle kullanılıyor.</p></div></div>}</main></div>
