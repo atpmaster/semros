@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import { GameAudio } from './audio'
 
 type LevelId = 'garden' | 'kitchen' | 'living'
 type Screen = 'home' | 'levels' | 'play' | 'complete'
@@ -105,13 +106,21 @@ function App() {
   const [activeNpc, setActiveNpc] = useState<Npc | null>(null)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [cameraX, setCameraX] = useState(0)
+  const [muted, setMuted] = useState(false)
+  const [celebration, setCelebration] = useState<string | null>(null)
+  const [combo, setCombo] = useState(0)
   const keys = useRef<Set<string>>(new Set())
   const collectedRef = useRef<string[]>([])
   const playerRef = useRef(player)
   const livesRef = useRef(lives)
+  const audioRef = useRef<GameAudio | null>(null)
   const levelDoneRef = useRef(false)
   const hazardCooldown = useRef(0)
   const interactionLock = useRef(false)
+  const comboRef = useRef(0)
+  const comboTimeout = useRef<number | undefined>(undefined)
+
+  if (!audioRef.current) audioRef.current = new GameAudio()
 
   const level = levels[levelIndex]
   const progress = useMemo(() => Math.round((collected.length / level.items.length) * 100), [collected.length, level.items.length])
@@ -119,6 +128,7 @@ function App() {
 
   useEffect(() => { playerRef.current = player }, [player])
   useEffect(() => { livesRef.current = lives }, [lives])
+  useEffect(() => () => audioRef.current?.destroy(), [])
 
   const resetPlayer = useCallback(() => {
     const next = { x: START_X, y: START_Y, vx: 0, vy: 0, direction: 1 as const, onGround: true, frame: 0 }
@@ -128,12 +138,17 @@ function App() {
   }, [])
 
   const resetLevel = useCallback((index = levelIndex) => {
+    audioRef.current?.start()
     setLevelIndex(index)
     setCollected([])
     collectedRef.current = []
     setActiveNpc(null)
     setNotice(levels[index].story)
     setMemoryOpen(false)
+    setCelebration(null)
+    setCombo(0)
+    comboRef.current = 0
+    if (comboTimeout.current) window.clearTimeout(comboTimeout.current)
     levelDoneRef.current = false
     hazardCooldown.current = 0
     interactionLock.current = false
@@ -142,6 +157,7 @@ function App() {
   }, [levelIndex, resetPlayer])
 
   const startGame = () => {
+    audioRef.current?.start()
     setScore(0)
     setLives(3)
     livesRef.current = 3
@@ -152,10 +168,12 @@ function App() {
     if (levelDoneRef.current) return
     levelDoneRef.current = true
     if (levelIndex === levels.length - 1) {
+      audioRef.current?.play('victory')
       setNotice('Aile ışığı tamamlandı! Hep birlikte başardınız!')
       setScreen('complete')
       return
     }
+    audioRef.current?.play('level')
     setNotice(`${levels[levelIndex].name} tamamlandı! Sıradaki macera açılıyor...`)
     window.setTimeout(() => resetLevel(levelIndex + 1), 900)
   }, [levelIndex, resetLevel])
@@ -164,6 +182,9 @@ function App() {
     if (hazardCooldown.current > 0 || levelDoneRef.current) return
     hazardCooldown.current = 1.2
     const nextLives = livesRef.current - 1
+    audioRef.current?.play('hit')
+    setCombo(0)
+    comboRef.current = 0
     setLives(nextLives)
     livesRef.current = nextLives
     if (nextLives <= 0) {
@@ -177,6 +198,7 @@ function App() {
 
   const interact = useCallback(() => {
     if (nearestNpc) {
+      audioRef.current?.play('talk')
       setActiveNpc(nearestNpc)
       setNotice(`${nearestNpc.name}: ${nearestNpc.message}`)
     } else if (progress === 100) setNotice('Kapıya ulaştın! Neşeyi tamamlamak için biraz daha ilerle.')
@@ -199,6 +221,7 @@ function App() {
         const next = { ...playerRef.current, vy: -12.5, onGround: false, frame: 3 }
         playerRef.current = next
         setPlayer(next)
+        audioRef.current?.play('jump')
       }
       if ((key === 'e' || key === 'enter') && !interactionLock.current) { interactionLock.current = true; interact() }
     }
@@ -238,7 +261,18 @@ function App() {
       playerRef.current = nextPlayer; setPlayer(nextPlayer); setCameraX(Math.max(0, Math.min(level.width - 1080, x - 360)))
       for (const item of level.items) {
         if (!collectedRef.current.includes(item.id) && Math.abs(item.x - (x + PLAYER_W / 2)) < 46 && Math.abs(item.y - (y + PLAYER_H / 2)) < 65) {
-          collectedRef.current = [...collectedRef.current, item.id]; setCollected(collectedRef.current); setScore((old) => old + (item.kind === 'memory' ? 250 : 100)); setNotice(`${item.label} bulundu! +${item.kind === 'memory' ? 250 : 100} puan`)
+          collectedRef.current = [...collectedRef.current, item.id]; setCollected(collectedRef.current)
+          const nextCombo = comboRef.current + 1
+          const points = (item.kind === 'memory' ? 250 : 100) + Math.min(nextCombo - 1, 4) * 25
+          comboRef.current = nextCombo
+          setCombo(nextCombo)
+          setScore((old) => old + points)
+          setCelebration(`${item.label}  ·  +${points}`)
+          window.setTimeout(() => setCelebration(null), 800)
+          if (comboTimeout.current) window.clearTimeout(comboTimeout.current)
+          comboTimeout.current = window.setTimeout(() => { comboRef.current = 0; setCombo(0) }, 2200)
+          audioRef.current?.play(item.kind === 'memory' ? 'memory' : 'collect')
+          setNotice(`${item.label} bulundu! +${points} puan${nextCombo > 1 ? ` · Neşe zinciri x${nextCombo}` : ''}`)
         }
       }
       for (const hazard of level.hazards) if (Math.abs(hazard.x - (x + PLAYER_W / 2)) < 42 && Math.abs(hazard.y - (y + PLAYER_H)) < 44) loseLife()
@@ -251,6 +285,7 @@ function App() {
 
   const pressControl = (name: string, event: ReactPointerEvent<HTMLButtonElement>) => { event.preventDefault(); keys.current.add(name); event.currentTarget.setPointerCapture(event.pointerId) }
   const releaseControl = (name: string, event: ReactPointerEvent<HTMLButtonElement>) => { event.preventDefault(); keys.current.delete(name) }
+  const toggleSound = () => { const next = !muted; setMuted(next); audioRef.current?.setMuted(next); if (!next) audioRef.current?.start() }
   const switchLevel = (index: number) => { setLevelIndex(index); setCollected([]); collectedRef.current = []; setNotice(levels[index].story); setScreen('levels') }
 
   if (screen === 'home') return <main className="app-shell home-shell"><div className="home-glow home-glow-one" /><div className="home-glow home-glow-two" /><section className="home-hero"><div className="eyebrow"><span className="sparkle">✦</span> Semra’nın macera günlüğü</div><h1>Semra’nın<br /><em>Neşe Macerası</em></h1><p className="hero-copy">Semra, aile ışığını yeniden yakmak için üç özel bölümde zıplayacak, toplayacak ve sevdikleriyle buluşacak.</p><div className="hero-actions"><button className="primary-button large" onClick={startGame}><span>▶</span> Oyuna başla</button><button className="ghost-button" onClick={() => setScreen('levels')}>Bölümleri gör <span>→</span></button></div><div className="hero-hint"><span>← →</span> koş <span>SPACE</span> zıpla <span>E</span> konuş</div></section><section className="home-art" aria-label="Semra ve ailesinin animasyonlu karakterleri"><div className="sun-disc" /><div className="hill hill-back" /><div className="hill hill-front" /><div className="home-card home-card-top"><span>3</span><small>özel bölüm</small></div><div className="home-card home-card-bottom"><span>♥</span><small>aile macerası</small></div><div className="home-character home-semilife"><img src="/images/semra-sprite.png" alt="Animasyonlu Semra" /></div><div className="family-lineup">{family.map((person) => <img key={person.name} src={person.image} alt={`Animasyonlu ${person.name}`} />)}</div><div className="art-caption">Fotoğraflardaki aile anılarından ilhamla <span>✦</span></div></section><footer className="privacy-note">Bu aile oyunu, özel fotoğrafları gereksiz kişisel bilgi eklemeden animasyonlaştırır.</footer></main>
@@ -259,7 +294,7 @@ function App() {
 
   if (screen === 'complete') return <main className="app-shell complete-shell"><div className="confetti confetti-one" /><div className="confetti confetti-two" /><div className="confetti confetti-three" /><div className="complete-badge">✦</div><div className="eyebrow">BÜYÜK FİNAL</div><h1>Aile ışığı <em>yandı!</em></h1><p>Semra bütün bölümleri tamamladı. Ahmet, Sevil, Mesut ve Zafer onunla gurur duyuyor.</p><div className="final-family">{family.map((person) => <img key={person.name} src={person.image} alt={person.name} />)}</div><div className="final-score"><span>TOPLAM PUAN</span><strong>{score.toLocaleString('tr-TR')}</strong></div><div className="hero-actions"><button className="primary-button" onClick={() => setMemoryOpen(true)}>📷 Gerçek aile anısını gör</button><button className="ghost-button" onClick={() => setScreen('home')}>Ana menüye dön <span>→</span></button></div>{memoryOpen && <MemoryModal onClose={() => setMemoryOpen(false)} />}</main>
 
-  return <main className="app-shell game-shell"><header className="game-header"><button className="brand-mark" onClick={() => setScreen('levels')}><span>✦</span> SEMRA</button><div className="level-title"><small>BÖLÜM {level.number}</small><strong>{level.name}</strong></div><div className="game-stats"><div><small>NEŞE</small><strong>{score.toLocaleString('tr-TR')}</strong></div><div><small>CAN</small><strong className="hearts">{'♥'.repeat(lives)}<i>{'♥'.repeat(3 - lives)}</i></strong></div></div></header><section className={`game-viewport theme-${level.id}`} aria-label={`${level.name} oynanış alanı`}><div className="world" style={{ width: `${level.width}px`, transform: `translateX(${-cameraX}px)` }}><div className="parallax-sky" /><div className="parallax-sun" /><div className="parallax-cloud cloud-a" /><div className="parallax-cloud cloud-b" /><div className="parallax-hill hill-a" /><div className="parallax-hill hill-b" />{level.id === 'garden' && <><div className="world-decor tree-decor tree-one">🌳</div><div className="world-decor tree-decor tree-two">🌲</div></>}{level.id === 'kitchen' && <div className="world-decor kitchen-decor">🍳</div>}{level.id === 'living' && <div className="world-decor living-decor">🖼️</div>}<div className="world-sign" style={{ left: 58 }}><span>✦</span> SEMRA’NIN DÜNYASI</div>{level.platforms.map((platform, index) => <div key={`${platform.x}-${index}`} className={`platform ${index === 0 ? 'ground' : ''}`} style={{ left: platform.x, top: platform.y, width: platform.w, height: platform.h }} />)}{level.items.map((item) => !collected.includes(item.id) && <div key={item.id} className={`collectible collectible-${item.kind}`} style={{ left: item.x, top: item.y }} title={item.label}><span>{item.kind === 'cake' ? '✦' : item.kind === 'toy' ? '◆' : item.kind === 'memory' ? '▣' : '★'}</span></div>)}{level.hazards.map((hazard) => <div key={hazard.id} className={`hazard hazard-${hazard.kind}`} style={{ left: hazard.x, top: hazard.y }}><span>{hazard.kind === 'pillow' ? '☁' : '●'}</span></div>)}{level.npcs.map((npc) => <div key={npc.id} className={`npc npc-${npc.id}`} style={{ left: npc.x, top: npc.y, '--npc-accent': npc.color } as CSSProperties}><img src={npc.image} alt={`Animasyonlu ${npc.name}`} /><div className="npc-tag"><strong>{npc.name}</strong><small>{npc.role}</small></div>{nearestNpc?.id === npc.id && <div className="talk-indicator">E</div>}</div>)}<div className="goal-gate" style={{ left: level.goal.x }}><div className="gate-glow" /><span>✦</span><small>{level.goal.label}</small></div><div className={`player ${player.onGround && Math.abs(player.vx) > 0.5 ? 'running' : ''}`} style={{ left: player.x, top: player.y, transform: `scaleX(${player.direction})` }}><div className="player-sprite" style={{ backgroundPosition: `${player.frame * 33.3333}% 0` }} /><div className="player-shadow" /></div></div><div className="game-overlay-top"><div className="mission-copy"><span className="mission-icon">✦</span><div><strong>{level.subtitle}</strong><small>{notice}</small></div></div><div className="progress-pill"><span>{collected.length}/{level.items.length}</span><div><i style={{ width: `${progress}%` }} /></div></div></div>{nearestNpc && <button className="talk-prompt" onClick={interact}>E <span>{nearestNpc.name} ile konuş</span></button>}</section><div className="game-controls"><div className="control-guide"><span><b>← →</b> veya A D koş</span><span><b>SPACE</b> zıpla</span><span><b>E</b> konuş</span></div><div className="touch-controls"><button aria-label="Sola git" onPointerDown={(event) => pressControl('arrowleft', event)} onPointerUp={(event) => releaseControl('arrowleft', event)} onPointerCancel={(event) => releaseControl('arrowleft', event)}>←</button><button aria-label="Sağa git" onPointerDown={(event) => pressControl('arrowright', event)} onPointerUp={(event) => releaseControl('arrowright', event)} onPointerCancel={(event) => releaseControl('arrowright', event)}>→</button><button className="jump-control" aria-label="Zıpla" onPointerDown={(event) => pressControl(' ', event)} onPointerUp={(event) => releaseControl(' ', event)} onPointerCancel={(event) => releaseControl(' ', event)}>↑</button>{nearestNpc && <button className="talk-control" aria-label="Konuş" onClick={interact}>E</button>}</div></div>{activeNpc && <div className="dialog-backdrop" onClick={() => setActiveNpc(null)}><div className="dialog-card" onClick={(event) => event.stopPropagation()}><button className="dialog-close" onClick={() => setActiveNpc(null)}>×</button><img src={activeNpc.image} alt={activeNpc.name} /><div><span className="eyebrow">AİLEDEN MESAJ</span><h2>{activeNpc.name}</h2><p>“{activeNpc.message}”</p><button className="primary-button" onClick={() => setActiveNpc(null)}>Devam et</button></div></div></div>}</main>
+  return <main className="app-shell game-shell"><header className="game-header"><button className="brand-mark" onClick={() => setScreen('levels')}><span>✦</span> SEMRA</button><div className="level-title"><small>BÖLÜM {level.number}</small><strong>{level.name}</strong></div><div className="game-actions"><button className="sound-toggle" onClick={toggleSound} aria-label={muted ? 'Sesi aç' : 'Sesi kapat'}><span>{muted ? '🔇' : '🔊'}</span><small>{muted ? 'Ses kapalı' : 'Ses açık'}</small></button><div className="game-stats"><div><small>NEŞE</small><strong>{score.toLocaleString('tr-TR')}</strong></div><div><small>CAN</small><strong className="hearts">{'♥'.repeat(lives)}<i>{'♥'.repeat(3 - lives)}</i></strong></div></div></div></header><section className={`game-viewport theme-${level.id}`} aria-label={`${level.name} oynanış alanı`}><div className="world" style={{ width: `${level.width}px`, transform: `translateX(${-cameraX}px)` }}><div className="parallax-sky" /><div className="parallax-sun" /><div className="parallax-cloud cloud-a" /><div className="parallax-cloud cloud-b" /><div className="parallax-hill hill-a" /><div className="parallax-hill hill-b" />{level.id === 'garden' && <><div className="world-decor tree-decor tree-one">🌳</div><div className="world-decor tree-decor tree-two">🌲</div></>}{level.id === 'kitchen' && <div className="world-decor kitchen-decor">🍳</div>}{level.id === 'living' && <div className="world-decor living-decor">🖼️</div>}<div className="world-sign" style={{ left: 58 }}><span>✦</span> SEMRA’NIN DÜNYASI</div>{level.platforms.map((platform, index) => <div key={`${platform.x}-${index}`} className={`platform ${index === 0 ? 'ground' : ''}`} style={{ left: platform.x, top: platform.y, width: platform.w, height: platform.h }} />)}{level.items.map((item) => !collected.includes(item.id) && <div key={item.id} className={`collectible collectible-${item.kind}`} style={{ left: item.x, top: item.y }} title={item.label}><span>{item.kind === 'cake' ? '✦' : item.kind === 'toy' ? '◆' : item.kind === 'memory' ? '▣' : '★'}</span></div>)}{level.hazards.map((hazard) => <div key={hazard.id} className={`hazard hazard-${hazard.kind}`} style={{ left: hazard.x, top: hazard.y }}><span>{hazard.kind === 'pillow' ? '☁' : '●'}</span></div>)}{level.npcs.map((npc) => <div key={npc.id} className={`npc npc-${npc.id}`} style={{ left: npc.x, top: npc.y, '--npc-accent': npc.color } as CSSProperties}><img src={npc.image} alt={`Animasyonlu ${npc.name}`} /><div className="npc-tag"><strong>{npc.name}</strong><small>{npc.role}</small></div>{nearestNpc?.id === npc.id && <div className="talk-indicator">E</div>}</div>)}<div className="goal-gate" style={{ left: level.goal.x }}><div className="gate-glow" /><span>✦</span><small>{level.goal.label}</small></div><div className={`player ${player.onGround && Math.abs(player.vx) > 0.5 ? 'running' : ''}`} style={{ left: player.x, top: player.y, transform: `scaleX(${player.direction})` }}><div className="player-sprite" style={{ backgroundPosition: `${player.frame * 33.3333}% 0` }} /><div className="player-shadow" /></div></div><div className="game-overlay-top"><div className="mission-copy"><span className="mission-icon">✦</span><div><strong>{level.subtitle}</strong><small>{notice}</small></div></div><div className="progress-pill"><span>{collected.length}/{level.items.length}</span><div><i style={{ width: `${progress}%` }} /></div></div></div>{celebration && <div className="collect-toast" key={celebration}>✦ {celebration} ✦</div>}{combo > 1 && <div className="combo-badge">NEŞE ZİNCİRİ ×{combo}</div>}{nearestNpc && <button className="talk-prompt" onClick={interact}>E <span>{nearestNpc.name} ile konuş</span></button>}</section><div className="game-controls"><div className="control-guide"><span><b>← →</b> veya A D koş</span><span><b>SPACE</b> zıpla</span><span><b>E</b> konuş</span><span><b>♫</b> müzik + efekt açık</span></div><div className="touch-controls"><button aria-label="Sola git" onPointerDown={(event) => pressControl('arrowleft', event)} onPointerUp={(event) => releaseControl('arrowleft', event)} onPointerCancel={(event) => releaseControl('arrowleft', event)}>←</button><button aria-label="Sağa git" onPointerDown={(event) => pressControl('arrowright', event)} onPointerUp={(event) => releaseControl('arrowright', event)} onPointerCancel={(event) => releaseControl('arrowright', event)}>→</button><button className="jump-control" aria-label="Zıpla" onPointerDown={(event) => pressControl(' ', event)} onPointerUp={(event) => releaseControl(' ', event)} onPointerCancel={(event) => releaseControl(' ', event)}>↑</button>{nearestNpc && <button className="talk-control" aria-label="Konuş" onClick={interact}>E</button>}</div></div>{activeNpc && <div className="dialog-backdrop" onClick={() => setActiveNpc(null)}><div className="dialog-card" onClick={(event) => event.stopPropagation()}><button className="dialog-close" onClick={() => setActiveNpc(null)}>×</button><img src={activeNpc.image} alt={activeNpc.name} /><div><span className="eyebrow">AİLEDEN MESAJ</span><h2>{activeNpc.name}</h2><p>“{activeNpc.message}”</p><button className="primary-button" onClick={() => setActiveNpc(null)}>Devam et</button></div></div></div>}</main>
 }
 
 function MemoryModal({ onClose }: { onClose: () => void }) {
